@@ -72,7 +72,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -107,12 +109,38 @@ private fun normalizeLetterChar(c: Char): Char = when (c.uppercaseChar()) {
 fun AppDrawerScreen(
     viewModel: LauncherViewModel,
     uiState: LauncherUiState,
+    onSwipeDownDrag: ((Float) -> Unit)? = null,
+    onSwipeDownRelease: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val haptic = LocalHapticFeedback.current
+
+    val nestedScrollConnection = remember(listState) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                // If pulling DOWN while at the very top of the list, slide the drawer down with the finger
+                if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                    onSwipeDownDrag?.invoke(available.y)
+                    return androidx.compose.ui.geometry.Offset(0f, available.y)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 && available.y > 0) {
+                    onSwipeDownRelease?.invoke(available.y)
+                    return available
+                }
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
 
     var selectedAppForMenu by remember { mutableStateOf<AppInfo?>(null) }
     var selectedFolderForView by remember { mutableStateOf<AppFolder?>(null) }
@@ -181,24 +209,33 @@ fun AppDrawerScreen(
             .then(if (uiState.hideStatusBar) Modifier else Modifier.statusBarsPadding())
             .navigationBarsPadding()
             .pointerInput(Unit) {
+                val velocityTracker = VelocityTracker()
+                var totalY = 0f
+
                 detectDragGestures(
                     onDragStart = {
-                        totalDragY = 0f
-                        drawerSwipeTriggered = false
+                        totalY = 0f
+                        velocityTracker.resetTracking()
                     },
                     onDragEnd = {
-                        drawerSwipeTriggered = false
+                        val velocityY = velocityTracker.calculateVelocity().y
+                        if (onSwipeDownRelease != null && totalY > 0f) {
+                            onSwipeDownRelease(velocityY)
+                        } else if (totalY > 40f) {
+                            viewModel.navigateTo(LauncherScreen.HOME)
+                        }
                     },
                     onDragCancel = {
-                        drawerSwipeTriggered = false
+                        if (onSwipeDownRelease != null && totalY > 0f) {
+                            onSwipeDownRelease(0f)
+                        }
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        totalDragY += dragAmount.y
-                        // Swipe Down in drawer returns fluidly to Home immediately
-                        if (!drawerSwipeTriggered && totalDragY > 40f) {
-                            drawerSwipeTriggered = true
-                            viewModel.navigateTo(LauncherScreen.HOME)
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        totalY += dragAmount.y
+                        if (dragAmount.y > 0 || totalY > 0) {
+                            onSwipeDownDrag?.invoke(dragAmount.y)
                         }
                     }
                 )
@@ -359,6 +396,7 @@ fun AppDrawerScreen(
                         state = listState,
                         modifier = Modifier
                             .weight(1f)
+                            .nestedScroll(nestedScrollConnection)
                             .testTag("drawer_apps_list")
                     ) {
                         // Letter search active indicator header

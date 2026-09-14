@@ -35,6 +35,7 @@ data class LauncherUiState(
     val drawerFolders: List<AppFolder> = emptyList(),
     val recentApps: List<AppInfo> = emptyList(),
     val lastLaunchedApp: AppInfo? = null,
+    val showRecentAppsSheet: Boolean = false,
     val iconStyle: String = "monochrome", // monochrome, custom_badge, system, none
     val searchQuery: String = "",
     val isLoading: Boolean = true,
@@ -62,6 +63,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private val _searchQuery = MutableStateFlow("")
     private val _currentScreen = MutableStateFlow(LauncherScreen.HOME)
+    private val _showRecentAppsSheet = MutableStateFlow(false)
     private val _notificationNotice = MutableStateFlow<String?>(null)
     private val _isLoading = MutableStateFlow(true)
 
@@ -96,13 +98,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         ExtendedConfig(size, iconStyle, gestures, folders, recentPkgs, widgetIds)
     }
 
+    private val screenStateFlow = combine(
+        _searchQuery,
+        _currentScreen,
+        _showRecentAppsSheet
+    ) { query, screen, showRecents -> Triple(query, screen, showRecents) }
+
     val uiState: StateFlow<LauncherUiState> = combine(
         repository.appsWithPreferences,
         baseConfigFlow,
         extendedConfigFlow,
-        _searchQuery,
-        _currentScreen
-    ) { apps, baseConfig, extConfig, query, screen ->
+        screenStateFlow
+    ) { apps, baseConfig, extConfig, (query, screen, showRecents) ->
         val favorites = apps.filter { it.isFavorite && !it.isHidden }
         val drawer = apps.filter { !it.isHidden }
         val hidden = apps.filter { it.isHidden }
@@ -150,6 +157,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             drawerFolders = drawerFolders,
             recentApps = recentAppsList,
             lastLaunchedApp = lastLaunched,
+            showRecentAppsSheet = showRecents,
             iconStyle = extConfig.iconStyle,
             searchQuery = query,
             isLoading = _isLoading.value,
@@ -204,6 +212,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun navigateTo(screen: LauncherScreen) {
+        hideRecentsSheet()
         _currentScreen.value = screen
         if (screen == LauncherScreen.HOME) {
             clearSearch()
@@ -211,6 +220,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun launchApp(app: AppInfo): Boolean {
+        hideRecentsSheet()
         val success = repository.launchApp(app.packageName, app.activityName)
         if (success) {
             viewModelScope.launch {
@@ -320,11 +330,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // Recent Apps & Fast Switching
+    fun showRecentsSheet() {
+        _showRecentAppsSheet.value = true
+    }
+
+    fun hideRecentsSheet() {
+        _showRecentAppsSheet.value = false
+    }
+
+    fun toggleRecentsSheet() {
+        _showRecentAppsSheet.value = !_showRecentAppsSheet.value
+    }
+
     fun openRecents(): Boolean {
         val success = repository.openRecents()
         if (!success) {
-            // If system toggle wasn't supported directly, switch to previous app
-            switchToPreviousApp()
+            // If system toggle wasn't supported directly, show recent apps sheet
+            showRecentsSheet()
         }
         return success
     }
@@ -356,7 +378,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherAction.OPEN_CAMERA -> repository.openCamera()
             LauncherAction.OPEN_CLOCK -> repository.openClock()
             LauncherAction.TOGGLE_FLASHLIGHT -> repository.toggleFlashlight()
-            LauncherAction.OPEN_RECENTS -> openRecents()
+            LauncherAction.OPEN_RECENTS -> showRecentsSheet()
             LauncherAction.SWITCH_TO_PREVIOUS_APP -> switchToPreviousApp()
             LauncherAction.NONE -> {}
         }

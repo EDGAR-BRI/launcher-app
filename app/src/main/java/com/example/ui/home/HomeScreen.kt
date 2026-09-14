@@ -65,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -96,18 +97,15 @@ fun HomeScreen(
     uiState: LauncherUiState,
     appWidgetHost: AppWidgetHost? = null,
     appWidgetManager: AppWidgetManager? = null,
+    onSwipeUpDrag: ((Float) -> Unit)? = null,
+    onSwipeUpRelease: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedAppForMenu by remember { mutableStateOf<AppInfo?>(null) }
     var selectedFolderForView by remember { mutableStateOf<AppFolder?>(null) }
     var folderToEdit by remember { mutableStateOf<AppFolder?>(null) }
     var appToAddToFolder by remember { mutableStateOf<AppInfo?>(null) }
-    var showRecentAppsSheet by remember { mutableStateOf(false) }
     var showWidgetPicker by remember { mutableStateOf(false) }
-
-    var totalDragX by remember { mutableFloatStateOf(0f) }
-    var totalDragY by remember { mutableFloatStateOf(0f) }
-    var gestureFired by remember { mutableStateOf(false) }
 
     val appTextSize = when (uiState.textSize) {
         "small" -> 17.sp
@@ -121,54 +119,64 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
             .then(if (uiState.hideStatusBar) Modifier else Modifier.statusBarsPadding())
             .navigationBarsPadding()
-            // Gestures detection: Instant response on drag and background taps
+            // Gestures detection: Real-time 1:1 finger tracking on vertical swipe up, plus horizontal/down gestures
             .pointerInput(Unit) {
+                var isVertical: Boolean? = null
+                var totalX = 0f
+                var totalY = 0f
+                val velocityTracker = VelocityTracker()
+
                 detectDragGestures(
                     onDragStart = {
-                        totalDragX = 0f
-                        totalDragY = 0f
-                        gestureFired = false
+                        isVertical = null
+                        totalX = 0f
+                        totalY = 0f
+                        velocityTracker.resetTracking()
                     },
                     onDragEnd = {
-                        if (!gestureFired) {
-                            val absX = abs(totalDragX)
-                            val absY = abs(totalDragY)
-                            if (absY > absX && absY > 25f) {
-                                if (totalDragY < 0) viewModel.executeGesture(GestureType.SWIPE_UP)
-                                else viewModel.executeGesture(GestureType.SWIPE_DOWN)
-                            } else if (absX > absY && absX > 35f) {
-                                if (totalDragX < 0) viewModel.executeGesture(GestureType.SWIPE_LEFT)
+                        val velocityY = velocityTracker.calculateVelocity().y
+                        if (isVertical == true) {
+                            if (totalY < 0) {
+                                if (onSwipeUpRelease != null) {
+                                    onSwipeUpRelease(velocityY)
+                                } else {
+                                    viewModel.navigateTo(LauncherScreen.DRAWER)
+                                }
+                            } else if (totalY > 50f) {
+                                viewModel.executeGesture(GestureType.SWIPE_DOWN)
+                            }
+                        } else if (isVertical == false) {
+                            if (abs(totalX) > 40f) {
+                                if (totalX < 0) viewModel.executeGesture(GestureType.SWIPE_LEFT)
                                 else viewModel.executeGesture(GestureType.SWIPE_RIGHT)
                             }
                         }
-                        gestureFired = false
+                        isVertical = null
                     },
                     onDragCancel = {
-                        gestureFired = false
+                        if (isVertical == true && totalY < 0) {
+                            onSwipeUpRelease?.invoke(0f)
+                        }
+                        isVertical = null
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        totalDragX += dragAmount.x
-                        totalDragY += dragAmount.y
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        totalX += dragAmount.x
+                        totalY += dragAmount.y
 
-                        // Trigger IMMEDIATELY on flick/drag (approx 28px) without waiting for finger release
-                        if (!gestureFired) {
-                            val absX = abs(totalDragX)
-                            val absY = abs(totalDragY)
-                            if (absY > absX && absY > 28f) {
-                                gestureFired = true
-                                if (totalDragY < 0) {
-                                    viewModel.executeGesture(GestureType.SWIPE_UP)
-                                } else {
-                                    viewModel.executeGesture(GestureType.SWIPE_DOWN)
-                                }
-                            } else if (absX > absY && absX > 40f) {
-                                gestureFired = true
-                                if (totalDragX < 0) {
-                                    viewModel.executeGesture(GestureType.SWIPE_LEFT)
-                                } else {
-                                    viewModel.executeGesture(GestureType.SWIPE_RIGHT)
-                                }
+                        if (isVertical == null) {
+                            if (abs(totalY) > abs(totalX) && abs(totalY) > 8f) {
+                                isVertical = true
+                            } else if (abs(totalX) > abs(totalY) && abs(totalX) > 12f) {
+                                isVertical = false
+                            }
+                        }
+
+                        if (isVertical == true) {
+                            if (dragAmount.y < 0 || totalY < 0) {
+                                // Real-time 1:1 finger tracking! The drawer slides up immediately with the finger
+                                onSwipeUpDrag?.invoke(dragAmount.y)
                             }
                         }
                     }
@@ -203,60 +211,18 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 // Multitasking / Recent apps quick button
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = {
-                            // Try system recents first, fallback to in-app recent apps sheet
-                            val opened = viewModel.openRecents()
-                            if (!opened) {
-                                showRecentAppsSheet = true
-                            }
-                        },
-                        modifier = Modifier.testTag("home_recents_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Layers,
-                            contentDescription = "Apps recientes / Multitarea",
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    if (uiState.lastLaunchedApp != null) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    viewModel.launchApp(uiState.lastLaunchedApp)
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                .testTag("quick_switch_last_app")
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.SwapHoriz,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Volver a ${uiState.lastLaunchedApp.label}",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Medium
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
+                IconButton(
+                    onClick = {
+                        viewModel.showRecentsSheet()
+                    },
+                    modifier = Modifier.testTag("home_recents_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Layers,
+                        contentDescription = "Apps recientes / Multitarea",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -497,27 +463,13 @@ fun HomeScreen(
                 }
             }
 
-            // Bottom Navigation Dock: All Apps & Multitasking
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+            // Bottom Navigation Dock: All Apps swipe up hint
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 10.dp)
             ) {
-                // Fast switch to recents button
-                IconButton(
-                    onClick = { showRecentAppsSheet = true },
-                    modifier = Modifier.testTag("dock_recents_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.History,
-                        contentDescription = "Historial reciente",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
                 // Center Swipe up hint
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -545,133 +497,6 @@ fun HomeScreen(
                         ),
                         color = MaterialTheme.colorScheme.tertiary
                     )
-                }
-
-                // Quick Recents / Multitasking Toggle Button
-                IconButton(
-                    onClick = {
-                        val handled = viewModel.openRecents()
-                        if (!handled) {
-                            showRecentAppsSheet = true
-                        }
-                    },
-                    modifier = Modifier.testTag("dock_menu_recents_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.GridView,
-                        contentDescription = "Menú de apps / Recientes",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    // Modal Sheet for Recent Apps / Fast Switcher
-    if (showRecentAppsSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showRecentAppsSheet = false },
-            sheetState = rememberModalBottomSheetState()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
-                    .navigationBarsPadding()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.Layers,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Apps Recientes",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    TextButton(
-                        onClick = {
-                            viewModel.openRecents()
-                        }
-                    ) {
-                        Text("Multitarea Android")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                if (uiState.recentApps.isEmpty()) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 32.dp)
-                    ) {
-                        Text(
-                            text = "Aún no has abierto aplicaciones recientemente.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(280.dp)
-                    ) {
-                        items(uiState.recentApps, key = { "recent_${it.packageName}" }) { app ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        showRecentAppsSheet = false
-                                        viewModel.launchApp(app)
-                                    }
-                                    .padding(vertical = 10.dp, horizontal = 8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    AppIconView(
-                                        packageName = app.packageName,
-                                        label = app.label,
-                                        iconStyle = uiState.iconStyle,
-                                        repository = viewModel.repository,
-                                        size = 30.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column {
-                                        Text(
-                                            text = app.label,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "Tocar para volver a esta app",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
