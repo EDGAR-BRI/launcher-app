@@ -97,6 +97,7 @@ fun LauncherCanvas(
                     uiState = uiState,
                     appWidgetHost = appWidgetHost,
                     appWidgetManager = appWidgetManager,
+                    isDrawerPartiallyOpen = { drawerOffsetY.value < screenHeight - 2f },
                     onSwipeUpDrag = { deltaY ->
                         coroutineScope.launch {
                             val newOffset = (drawerOffsetY.value + deltaY).coerceIn(0f, screenHeight)

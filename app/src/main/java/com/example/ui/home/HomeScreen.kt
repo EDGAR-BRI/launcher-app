@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -64,12 +65,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AppFolder
@@ -97,15 +103,74 @@ fun HomeScreen(
     uiState: LauncherUiState,
     appWidgetHost: AppWidgetHost? = null,
     appWidgetManager: AppWidgetManager? = null,
+    isDrawerPartiallyOpen: () -> Boolean = { false },
     onSwipeUpDrag: ((Float) -> Unit)? = null,
     onSwipeUpRelease: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val favoritesListState = rememberLazyListState()
     var selectedAppForMenu by remember { mutableStateOf<AppInfo?>(null) }
     var selectedFolderForView by remember { mutableStateOf<AppFolder?>(null) }
     var folderToEdit by remember { mutableStateOf<AppFolder?>(null) }
     var appToAddToFolder by remember { mutableStateOf<AppInfo?>(null) }
     var showWidgetPicker by remember { mutableStateOf(false) }
+
+    // Nested scroll connection for favorites list:
+    // Enables seamless swipe up to open all apps drawer when finishing favorites scroll,
+    // or when favorites fits on screen without needing to swipe from system bar edge.
+    val favoritesNestedScrollConnection = remember(favoritesListState, isDrawerPartiallyOpen) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                // If the drawer is already pulled open and user drags down, close it first
+                if (available.y > 0 && isDrawerPartiallyOpen()) {
+                    onSwipeUpDrag?.invoke(available.y)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                // When dragging UP and favorites cannot scroll further (or fits on screen),
+                // smoothly pull up the all-apps drawer
+                if (available.y < 0) {
+                    onSwipeUpDrag?.invoke(available.y)
+                    return Offset(0f, available.y)
+                }
+                // If drawer is partially pulled and dragging down, continue closing it
+                if (available.y > 0 && isDrawerPartiallyOpen()) {
+                    onSwipeUpDrag?.invoke(available.y)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (isDrawerPartiallyOpen()) {
+                    onSwipeUpRelease?.invoke(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity
+            ): Velocity {
+                if (isDrawerPartiallyOpen() || available.y < 0) {
+                    onSwipeUpRelease?.invoke(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
 
     val appTextSize = when (uiState.textSize) {
         "small" -> 17.sp
@@ -403,10 +468,12 @@ fun HomeScreen(
                 }
             } else {
                 LazyColumn(
+                    state = favoritesListState,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .nestedScroll(favoritesNestedScrollConnection)
                         .testTag("favorite_apps_list")
                 ) {
                     // 1. Folders in Home
