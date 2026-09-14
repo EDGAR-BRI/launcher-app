@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer minimalist rounded ring -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M 54, 30 A 24 24 0 1 0 78, 54" />
+
+    <!-- Minimalist center aperture / dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 54, 50 A 4 4 0 1 1 54, 58 A 4 4 0 1 1 54, 50" />
+
+    <!-- Minimal horizontal focus mark -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M 38, 72 L 70, 72" />
+</vector>
