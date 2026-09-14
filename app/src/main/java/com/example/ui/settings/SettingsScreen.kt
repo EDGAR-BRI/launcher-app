@@ -1,5 +1,8 @@
 package com.example.ui.settings
 
+import com.example.BuildConfig
+import android.content.Intent
+import android.net.Uri
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import androidx.compose.foundation.background
@@ -34,6 +37,9 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.Widgets
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -42,6 +48,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -86,6 +93,7 @@ fun SettingsScreen(
     var folderToEdit by remember { mutableStateOf<AppFolder?>(null) }
     var folderToEditApps by remember { mutableStateOf<AppFolder?>(null) }
     var showWidgetPicker by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Box(
         modifier = modifier
@@ -584,6 +592,81 @@ fun SettingsScreen(
                     )
                 }
 
+                // Section: Auto Updates & GitHub
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsSectionHeader(
+                        icon = Icons.Outlined.SystemUpdate,
+                        title = "Actualizaciones de la App"
+                    )
+                }
+
+                item {
+                    SettingsClickableRow(
+                        title = "Versión instalada",
+                        value = "v${BuildConfig.VERSION_NAME}",
+                        onClick = { viewModel.checkForUpdates(isUserInitiated = true) }
+                    )
+                }
+
+                item {
+                    SettingsClickableRow(
+                        title = "Repositorio GitHub",
+                        value = "EDGAR-BRI/launcher-app",
+                        trailingIcon = Icons.Outlined.OpenInNew,
+                        onClick = {
+                            val intent = Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://github.com/EDGAR-BRI/launcher-app")
+                            ).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        }
+                    )
+                }
+
+                item {
+                    SettingsToggleRow(
+                        title = "Comprobar al iniciar",
+                        subtitle = "Busca si hay una nueva versión pública disponible al abrir el launcher",
+                        checked = uiState.autoCheckUpdates,
+                        onCheckedChange = { viewModel.setAutoCheckUpdates(it) }
+                    )
+                }
+
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { viewModel.checkForUpdates(isUserInitiated = true) }
+                            .padding(14.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Buscar actualizaciones ahora",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Consulta las releases de GitHub y descarga el APK",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.CloudDownload,
+                            contentDescription = "Buscar actualizaciones",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
                 }
@@ -825,6 +908,7 @@ private fun SettingsToggleRow(
 private fun SettingsClickableRow(
     title: String,
     value: String,
+    trailingIcon: ImageVector? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -842,10 +926,23 @@ private fun SettingsClickableRow(
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.primary
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (trailingIcon != null) {
+                Icon(
+                    imageVector = trailingIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }

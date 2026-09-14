@@ -33,6 +33,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.LauncherScreen
 import com.example.ui.LauncherViewModel
+import com.example.ui.components.AppUpdateDialog
 import com.example.ui.components.LauncherCanvas
 import com.example.ui.components.RecentAppsSheet
 import com.example.ui.drawer.AppDrawerScreen
@@ -153,6 +154,12 @@ class MainActivity : ComponentActivity() {
                         onOpenSystemRecents = { viewModel.openRecents() }
                     )
                 }
+
+                // Global dialog for GitHub auto-updates
+                AppUpdateDialog(
+                    updateState = uiState.updateState,
+                    viewModel = viewModel
+                )
             }
         }
     }

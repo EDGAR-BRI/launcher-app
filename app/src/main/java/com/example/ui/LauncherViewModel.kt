@@ -11,13 +11,19 @@ import com.example.data.model.GestureType
 import com.example.data.model.LauncherAction
 import com.example.data.receiver.PackageReceiver
 import com.example.data.repository.AppRepository
+import com.example.data.updater.AppReleaseInfo
+import com.example.data.updater.AppUpdateManager
+import com.example.data.updater.UpdateState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 
 enum class LauncherScreen {
     HOME,
@@ -53,7 +59,10 @@ data class LauncherUiState(
     val textSize: String = "medium",
     val gestureActions: Map<GestureType, LauncherAction> = emptyMap(),
     val currentScreen: LauncherScreen = LauncherScreen.HOME,
-    val notificationNotice: String? = null
+    val notificationNotice: String? = null,
+    val githubRepo: String = "EDGAR-BRI/launcher-app",
+    val autoCheckUpdates: Boolean = true,
+    val updateState: UpdateState = UpdateState.Idle
 )
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -91,11 +100,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         preferencesManager.iconStyleFlow,
         preferencesManager.gesturesFlow,
         preferencesManager.foldersFlow,
-        combine(preferencesManager.recentAppsFlow, preferencesManager.systemAppWidgetIdsFlow) { recentPkgs, widgetIds ->
-            recentPkgs to widgetIds
+        combine(
+            combine(preferencesManager.recentAppsFlow, preferencesManager.systemAppWidgetIdsFlow) { r, w -> r to w },
+            combine(preferencesManager.githubRepoFlow, preferencesManager.autoCheckUpdatesFlow) { repo, auto -> repo to auto }
+        ) { (recentPkgs, widgetIds), (repo, autoCheck) ->
+            ExtendedExtras(recentPkgs, widgetIds, repo, autoCheck)
         }
-    ) { size, iconStyle, gestures, folders, (recentPkgs, widgetIds) ->
-        ExtendedConfig(size, iconStyle, gestures, folders, recentPkgs, widgetIds)
+    ) { size, iconStyle, gestures, folders, extras ->
+        ExtendedConfig(
+            size = size,
+            iconStyle = iconStyle,
+            gestures = gestures,
+            folders = folders,
+            recentPkgs = extras.recentPkgs,
+            systemAppWidgetIds = extras.widgetIds,
+            githubRepo = extras.repo,
+            autoCheckUpdates = extras.autoCheck
+        )
     }
 
     private val screenStateFlow = combine(
@@ -104,12 +125,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _showRecentAppsSheet
     ) { query, screen, showRecents -> Triple(query, screen, showRecents) }
 
+    val updateManager = AppUpdateManager(application)
+
     val uiState: StateFlow<LauncherUiState> = combine(
         repository.appsWithPreferences,
         baseConfigFlow,
         extendedConfigFlow,
-        screenStateFlow
-    ) { apps, baseConfig, extConfig, (query, screen, showRecents) ->
+        screenStateFlow,
+        updateManager.updateState
+    ) { apps, baseConfig, extConfig, (query, screen, showRecents), updateState ->
         val favorites = apps.filter { it.isFavorite && !it.isHidden }
         val drawer = apps.filter { !it.isHidden }
         val hidden = apps.filter { it.isHidden }
@@ -171,7 +195,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             textSize = extConfig.size,
             gestureActions = extConfig.gestures,
             currentScreen = screen,
-            notificationNotice = _notificationNotice.value
+            notificationNotice = _notificationNotice.value,
+            githubRepo = extConfig.githubRepo,
+            autoCheckUpdates = extConfig.autoCheckUpdates,
+            updateState = updateState
         )
     }.stateIn(
         scope = viewModelScope,
@@ -185,6 +212,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _isLoading.value = true
             repository.reloadApps()
             _isLoading.value = false
+
+            // Check for updates on startup if enabled
+            delay(2500)
+            try {
+                val autoCheck = preferencesManager.autoCheckUpdatesFlow.first()
+                val repo = preferencesManager.githubRepoFlow.first()
+                if (autoCheck && repo.isNotBlank()) {
+                    updateManager.checkForUpdates(repo, isUserInitiated = false)
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -429,6 +466,39 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             preferencesManager.removeSystemAppWidget(appWidgetId)
         }
     }
+
+    fun checkForUpdates(isUserInitiated: Boolean = true) {
+        viewModelScope.launch {
+            val repo = uiState.value.githubRepo
+            updateManager.checkForUpdates(repo, isUserInitiated = isUserInitiated)
+        }
+    }
+
+    fun downloadUpdate(release: AppReleaseInfo) {
+        viewModelScope.launch {
+            updateManager.downloadUpdate(release)
+        }
+    }
+
+    fun installApk(file: File) {
+        updateManager.installApk(file)
+    }
+
+    fun dismissUpdateDialog() {
+        updateManager.dismissState()
+    }
+
+    fun setGithubRepo(repo: String) {
+        viewModelScope.launch {
+            preferencesManager.setGithubRepo(repo)
+        }
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesManager.setAutoCheckUpdates(enabled)
+        }
+    }
 }
 
 private data class BaseConfig(
@@ -440,11 +510,20 @@ private data class BaseConfig(
     val hideStatusBar: Boolean = false
 )
 
+private data class ExtendedExtras(
+    val recentPkgs: List<String>,
+    val widgetIds: List<Int>,
+    val repo: String,
+    val autoCheck: Boolean
+)
+
 private data class ExtendedConfig(
     val size: String,
     val iconStyle: String,
     val gestures: Map<GestureType, LauncherAction>,
     val folders: List<AppFolder>,
     val recentPkgs: List<String>,
-    val systemAppWidgetIds: List<Int> = emptyList()
+    val systemAppWidgetIds: List<Int> = emptyList(),
+    val githubRepo: String = "EDGAR-BRI/launcher-app",
+    val autoCheckUpdates: Boolean = true
 )

@@ -42,6 +42,16 @@ class PreferencesManager(private val context: Context) {
         private val KEY_RECENT_APPS = stringPreferencesKey("recent_apps_json")
         private val KEY_HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
         private val KEY_SYSTEM_APP_WIDGET_IDS = stringPreferencesKey("system_app_widget_ids")
+        private val KEY_GITHUB_REPO = stringPreferencesKey("github_repo")
+        private val KEY_AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+    }
+
+    val githubRepoFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_GITHUB_REPO] ?: "EDGAR-BRI/launcher-app"
+    }
+
+    val autoCheckUpdatesFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_AUTO_CHECK_UPDATES] ?: true
     }
 
     val hideStatusBarFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -484,6 +494,18 @@ class PreferencesManager(private val context: Context) {
                 GestureType.LONG_PRESS -> KEY_GESTURE_LONG_PRESS
             }
             prefs[key] = action.name
+        }
+    }
+
+    suspend fun setGithubRepo(repo: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_GITHUB_REPO] = repo.trim()
+        }
+    }
+
+    suspend fun setAutoCheckUpdates(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_AUTO_CHECK_UPDATES] = enabled
         }
     }
 }
