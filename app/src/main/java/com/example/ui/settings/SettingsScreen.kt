@@ -1,5 +1,7 @@
 package com.example.ui.settings
 
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
@@ -53,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,23 +69,29 @@ import com.example.ui.LauncherScreen
 import com.example.ui.LauncherUiState
 import com.example.ui.LauncherViewModel
 import com.example.ui.folder.CreateOrEditFolderDialog
+import com.example.ui.folder.SelectAppsForFolderDialog
+import com.example.ui.widgets.AppWidgetPickerDialog
 
 @Composable
 fun SettingsScreen(
     viewModel: LauncherViewModel,
     uiState: LauncherUiState,
+    appWidgetHost: AppWidgetHost? = null,
+    appWidgetManager: AppWidgetManager? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedGestureForEdit by remember { mutableStateOf<GestureType?>(null) }
     var showHiddenAppsDialog by remember { mutableStateOf(false) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var folderToEdit by remember { mutableStateOf<AppFolder?>(null) }
+    var folderToEditApps by remember { mutableStateOf<AppFolder?>(null) }
+    var showWidgetPicker by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .then(if (uiState.hideStatusBar) Modifier else Modifier.statusBarsPadding())
             .navigationBarsPadding()
             .testTag("settings_screen")
     ) {
@@ -226,6 +236,7 @@ fun SettingsScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { folderToEditApps = folder }
                                 .padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -235,16 +246,16 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "${folder.packageNames.size} apps • ${if (folder.showInHome) "En Inicio" else "Oculta en inicio"}",
+                                    text = "${folder.packageNames.size} apps • Toca para gestionar apps",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.secondary
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { folderToEdit = folder }) {
                                     Icon(
                                         imageVector = Icons.Outlined.Edit,
-                                        contentDescription = "Editar carpeta",
+                                        contentDescription = "Editar nombre y ajustes de carpeta",
                                         tint = MaterialTheme.colorScheme.secondary,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -331,6 +342,72 @@ fun SettingsScreen(
                     )
                 }
 
+                // App System Widgets Subsection
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { showWidgetPicker = true },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Añadir widget de una aplicación")
+                    }
+                }
+
+                if (uiState.systemAppWidgetIds.isNotEmpty() && appWidgetManager != null) {
+                    items(uiState.systemAppWidgetIds, key = { "sys_w_$it" }) { widgetId ->
+                        val context = LocalContext.current
+                        val info = remember(widgetId) {
+                            try { appWidgetManager.getAppWidgetInfo(widgetId) } catch (_: Exception) { null }
+                        }
+                        val widgetTitle = info?.loadLabel(context.packageManager) ?: "Widget de app (#$widgetId)"
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Widgets,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = widgetTitle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    viewModel.removeSystemAppWidget(widgetId)
+                                    try { appWidgetHost?.deleteAppWidgetId(widgetId) } catch (_: Exception) {}
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = "Eliminar widget",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Section: Navigation Gestures
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -413,6 +490,15 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+
+                item {
+                    SettingsToggleRow(
+                        title = "Ocultar barra de estado",
+                        subtitle = "Oculta el reloj, nivel de batería y notificaciones superiores para una interfaz minimalista",
+                        checked = uiState.hideStatusBar,
+                        onCheckedChange = { viewModel.setHideStatusBar(it) }
+                    )
                 }
 
                 item {
@@ -632,6 +718,37 @@ fun SettingsScreen(
                 viewModel.toggleFolderPlacement(folder.id, inHome, inDrawer)
                 folderToEdit = null
             }
+        )
+    }
+
+    // Edit Folder Apps Dialog (Opened when tapping a folder in Settings)
+    folderToEditApps?.let { folder ->
+        val liveFolder = uiState.folders.find { it.id == folder.id } ?: folder
+        SelectAppsForFolderDialog(
+            folder = liveFolder,
+            allApps = uiState.drawerApps,
+            iconStyle = uiState.iconStyle,
+            repository = viewModel.repository,
+            currentPackageNames = liveFolder.packageNames.toSet(),
+            onDismiss = { folderToEditApps = null },
+            onAddApp = { pkg ->
+                viewModel.addAppToFolder(liveFolder.id, pkg)
+            },
+            onRemoveApp = { pkg ->
+                viewModel.removeAppFromFolder(liveFolder.id, pkg)
+            }
+        )
+    }
+
+    // App Widget Picker Dialog
+    if (showWidgetPicker && appWidgetHost != null && appWidgetManager != null) {
+        AppWidgetPickerDialog(
+            appWidgetHost = appWidgetHost,
+            appWidgetManager = appWidgetManager,
+            onWidgetAdded = { widgetId ->
+                viewModel.addSystemAppWidget(widgetId)
+            },
+            onDismiss = { showWidgetPicker = false }
         )
     }
 }

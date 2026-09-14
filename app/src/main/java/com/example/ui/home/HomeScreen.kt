@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -77,11 +78,15 @@ import com.example.data.model.GestureType
 import com.example.ui.LauncherScreen
 import com.example.ui.LauncherUiState
 import com.example.ui.LauncherViewModel
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
 import com.example.ui.components.AppIconView
 import com.example.ui.drawer.SelectFolderForAppDialog
 import com.example.ui.folder.CreateOrEditFolderDialog
 import com.example.ui.folder.FolderContentBottomSheet
 import com.example.ui.folder.FolderItemRow
+import com.example.ui.widgets.AppWidgetPickerDialog
+import com.example.ui.widgets.SystemAppWidgetView
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,6 +94,8 @@ import kotlin.math.abs
 fun HomeScreen(
     viewModel: LauncherViewModel,
     uiState: LauncherUiState,
+    appWidgetHost: AppWidgetHost? = null,
+    appWidgetManager: AppWidgetManager? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedAppForMenu by remember { mutableStateOf<AppInfo?>(null) }
@@ -96,6 +103,7 @@ fun HomeScreen(
     var folderToEdit by remember { mutableStateOf<AppFolder?>(null) }
     var appToAddToFolder by remember { mutableStateOf<AppInfo?>(null) }
     var showRecentAppsSheet by remember { mutableStateOf(false) }
+    var showWidgetPicker by remember { mutableStateOf(false) }
 
     var totalDragX by remember { mutableFloatStateOf(0f) }
     var totalDragY by remember { mutableFloatStateOf(0f) }
@@ -111,7 +119,7 @@ fun HomeScreen(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .then(if (uiState.hideStatusBar) Modifier else Modifier.statusBarsPadding())
             .navigationBarsPadding()
             // Gestures detection: Instant response on drag and background taps
             .pointerInput(Unit) {
@@ -251,16 +259,30 @@ fun HomeScreen(
                     }
                 }
 
-                IconButton(
-                    onClick = { viewModel.navigateTo(LauncherScreen.SETTINGS) },
-                    modifier = Modifier.testTag("home_settings_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = "Ajustes",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(22.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { showWidgetPicker = true },
+                        modifier = Modifier.testTag("home_add_widget_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Widgets,
+                            contentDescription = "Añadir widget",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.navigateTo(LauncherScreen.SETTINGS) },
+                        modifier = Modifier.testTag("home_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = "Ajustes",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
@@ -334,6 +356,23 @@ fun HomeScreen(
                         intention = uiState.dailyIntention,
                         onSaveIntention = { newText: String -> viewModel.updateDailyIntention(newText) }
                     )
+                }
+
+                // System App Widgets
+                if (appWidgetHost != null && appWidgetManager != null && uiState.systemAppWidgetIds.isNotEmpty()) {
+                    uiState.systemAppWidgetIds.forEach { widgetId ->
+                        SystemAppWidgetView(
+                            appWidgetId = widgetId,
+                            appWidgetHost = appWidgetHost,
+                            appWidgetManager = appWidgetManager,
+                            onRemoveWidget = {
+                                viewModel.removeSystemAppWidget(widgetId)
+                                try {
+                                    appWidgetHost.deleteAppWidgetId(widgetId)
+                                } catch (_: Exception) {}
+                            }
+                        )
+                    }
                 }
             }
 
@@ -829,6 +868,18 @@ fun HomeScreen(
                 viewModel.createFolder(folderName, initialPackages = listOf(app.packageName), inHome = true)
                 appToAddToFolder = null
             }
+        )
+    }
+
+    // App Widget Picker Dialog
+    if (showWidgetPicker && appWidgetHost != null && appWidgetManager != null) {
+        AppWidgetPickerDialog(
+            appWidgetHost = appWidgetHost,
+            appWidgetManager = appWidgetManager,
+            onWidgetAdded = { widgetId ->
+                viewModel.addSystemAppWidget(widgetId)
+            },
+            onDismiss = { showWidgetPicker = false }
         )
     }
 }

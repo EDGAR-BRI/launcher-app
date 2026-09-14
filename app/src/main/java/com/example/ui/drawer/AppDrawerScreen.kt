@@ -178,7 +178,7 @@ fun AppDrawerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .then(if (uiState.hideStatusBar) Modifier else Modifier.statusBarsPadding())
             .navigationBarsPadding()
             .pointerInput(Unit) {
                 detectDragGestures(
@@ -303,54 +303,57 @@ fun AppDrawerScreen(
                 )
             }
 
-            if (uiState.isLoading) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            } else if (uiState.filteredApps.isEmpty() && uiState.drawerFolders.isEmpty()) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 60.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = if (uiState.searchQuery.length == 1) {
-                                "Sin aplicaciones que empiecen por '${uiState.searchQuery.uppercase()}'"
-                            } else {
-                                "No se encontraron aplicaciones"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.secondary
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (uiState.isLoading) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (uiState.searchQuery.length == 1) {
-                                "Toca otra letra o muestra la lista completa"
-                            } else {
-                                "Intenta buscar con otro término"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { viewModel.clearSearch() },
-                            shape = RoundedCornerShape(20.dp)
-                        ) {
-                            Text("Mostrar todas las aplicaciones")
+                    }
+                } else if (uiState.filteredApps.isEmpty() && uiState.drawerFolders.isEmpty()) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(24.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (uiState.searchQuery.length == 1) {
+                                    "Sin aplicaciones con '${uiState.searchQuery.uppercase()}'"
+                                } else {
+                                    "No se encontraron aplicaciones"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = if (uiState.searchQuery.length == 1) {
+                                    "Sigue deslizando el dedo por el abecedario"
+                                } else {
+                                    "Intenta buscar con otro término"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = { viewModel.clearSearch() },
+                                shape = RoundedCornerShape(20.dp)
+                            ) {
+                                Text("Mostrar todas")
+                            }
                         }
                     }
-                }
-            } else {
-                Row(modifier = Modifier.fillMaxSize()) {
+                } else {
                     // Main Apps & Folders List
                     LazyColumn(
                         state = listState,
@@ -496,8 +499,9 @@ fun AppDrawerScreen(
                             }
                         }
                     }
+                }
 
-                    // Interactive Alphabet Scrubber Column on Right: Taps & Continuous Drag/Scrub
+                // Interactive Alphabet Scrubber Column on Right: Taps & Continuous Drag/Scrub
                     Column(
                         verticalArrangement = Arrangement.SpaceEvenly,
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -564,7 +568,6 @@ fun AppDrawerScreen(
                     }
                 }
             }
-        }
 
         // Scrubbing Bubble Floating Indicator
         AnimatedVisibility(

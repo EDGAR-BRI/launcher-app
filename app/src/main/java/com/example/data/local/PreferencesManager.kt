@@ -40,6 +40,29 @@ class PreferencesManager(private val context: Context) {
         private val KEY_FOLDERS = stringPreferencesKey("folders_json")
         private val KEY_ICON_STYLE = stringPreferencesKey("icon_style")
         private val KEY_RECENT_APPS = stringPreferencesKey("recent_apps_json")
+        private val KEY_HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
+        private val KEY_SYSTEM_APP_WIDGET_IDS = stringPreferencesKey("system_app_widget_ids")
+    }
+
+    val hideStatusBarFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HIDE_STATUS_BAR] ?: false
+    }
+
+    val systemAppWidgetIdsFlow: Flow<List<Int>> = context.dataStore.data.map { prefs ->
+        val raw = prefs[KEY_SYSTEM_APP_WIDGET_IDS]
+        if (raw.isNullOrBlank()) emptyList()
+        else {
+            try {
+                val arr = JSONArray(raw)
+                val list = mutableListOf<Int>()
+                for (i in 0 until arr.length()) {
+                    list.add(arr.getInt(i))
+                }
+                list
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
     }
 
     val favoritesFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
@@ -217,6 +240,54 @@ class PreferencesManager(private val context: Context) {
     suspend fun setIconStyle(style: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_ICON_STYLE] = style
+        }
+    }
+
+    suspend fun setHideStatusBar(hide: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_HIDE_STATUS_BAR] = hide
+        }
+    }
+
+    suspend fun addSystemAppWidget(widgetId: Int) {
+        context.dataStore.edit { prefs ->
+            val raw = prefs[KEY_SYSTEM_APP_WIDGET_IDS]
+            val list = mutableListOf<Int>()
+            if (!raw.isNullOrBlank()) {
+                try {
+                    val arr = JSONArray(raw)
+                    for (i in 0 until arr.length()) {
+                        list.add(arr.getInt(i))
+                    }
+                } catch (_: Exception) {}
+            }
+            if (!list.contains(widgetId)) {
+                list.add(widgetId)
+            }
+            val newArray = JSONArray()
+            list.forEach { newArray.put(it) }
+            prefs[KEY_SYSTEM_APP_WIDGET_IDS] = newArray.toString()
+        }
+    }
+
+    suspend fun removeSystemAppWidget(widgetId: Int) {
+        context.dataStore.edit { prefs ->
+            val raw = prefs[KEY_SYSTEM_APP_WIDGET_IDS]
+            val list = mutableListOf<Int>()
+            if (!raw.isNullOrBlank()) {
+                try {
+                    val arr = JSONArray(raw)
+                    for (i in 0 until arr.length()) {
+                        val id = arr.getInt(i)
+                        if (id != widgetId) {
+                            list.add(id)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            val newArray = JSONArray()
+            list.forEach { newArray.put(it) }
+            prefs[KEY_SYSTEM_APP_WIDGET_IDS] = newArray.toString()
         }
     }
 

@@ -1,5 +1,7 @@
 package com.example
 
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -20,8 +22,12 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.LauncherScreen
 import com.example.ui.LauncherViewModel
@@ -33,13 +39,30 @@ import com.example.ui.theme.MinimalLauncherTheme
 class MainActivity : ComponentActivity() {
 
     private val viewModel: LauncherViewModel by viewModels()
+    private val APPWIDGET_HOST_ID = 2048
+    private lateinit var appWidgetHost: AppWidgetHost
+    private lateinit var appWidgetManager: AppWidgetManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        appWidgetHost = AppWidgetHost(applicationContext, APPWIDGET_HOST_ID)
+        appWidgetManager = AppWidgetManager.getInstance(applicationContext)
+
         setContent {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(uiState.hideStatusBar) {
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                if (uiState.hideStatusBar) {
+                    insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                    insetsController.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    insetsController.show(WindowInsetsCompat.Type.statusBars())
+                }
+            }
 
             MinimalLauncherTheme(themeMode = uiState.themeMode) {
                 // Launcher Back Button Discipline:
@@ -136,7 +159,9 @@ class MainActivity : ComponentActivity() {
                             LauncherScreen.HOME -> {
                                 HomeScreen(
                                     viewModel = viewModel,
-                                    uiState = uiState
+                                    uiState = uiState,
+                                    appWidgetHost = appWidgetHost,
+                                    appWidgetManager = appWidgetManager
                                 )
                             }
                             LauncherScreen.DRAWER -> {
@@ -148,7 +173,9 @@ class MainActivity : ComponentActivity() {
                             LauncherScreen.SETTINGS -> {
                                 SettingsScreen(
                                     viewModel = viewModel,
-                                    uiState = uiState
+                                    uiState = uiState,
+                                    appWidgetHost = appWidgetHost,
+                                    appWidgetManager = appWidgetManager
                                 )
                             }
                         }
@@ -156,5 +183,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try {
+            appWidgetHost.startListening()
+        } catch (_: Exception) {}
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            appWidgetHost.stopListening()
+        } catch (_: Exception) {}
     }
 }

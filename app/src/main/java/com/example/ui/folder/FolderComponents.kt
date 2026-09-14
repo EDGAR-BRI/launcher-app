@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -40,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AppFolder
 import com.example.data.model.AppInfo
+import com.example.data.repository.AppRepository
 import com.example.ui.LauncherViewModel
 import com.example.ui.components.AppIconView
 
@@ -135,20 +138,26 @@ fun FolderContentBottomSheet(
     onDismiss: () -> Unit,
     onEditFolder: (AppFolder) -> Unit
 ) {
-    val folderApps = remember(folder.packageNames, allApps) {
+    val uiState by viewModel.uiState.collectAsState()
+    val currentFolder = uiState.folders.find { it.id == folder.id } ?: folder
+
+    val folderApps = remember(currentFolder.packageNames, allApps) {
         val map = allApps.associateBy { it.packageName }
-        folder.packageNames.mapNotNull { map[it] }
+        currentFolder.packageNames.mapNotNull { map[it] }
     }
 
     var showAddAppsDialog by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState()
+        sheetState = sheetState,
+        modifier = Modifier.fillMaxHeight(0.90f)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 24.dp)
                 .navigationBarsPadding()
@@ -172,7 +181,7 @@ fun FolderContentBottomSheet(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = folder.name,
+                            text = currentFolder.name,
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),
@@ -194,7 +203,7 @@ fun FolderContentBottomSheet(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                    IconButton(onClick = { onEditFolder(folder) }) {
+                    IconButton(onClick = { onEditFolder(currentFolder) }) {
                         Icon(
                             imageVector = Icons.Outlined.Edit,
                             contentDescription = "Editar carpeta",
@@ -213,6 +222,7 @@ fun FolderContentBottomSheet(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .weight(1f)
                         .padding(vertical = 32.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -237,7 +247,7 @@ fun FolderContentBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(320.dp)
+                        .weight(1f, fill = false)
                 ) {
                     items(folderApps, key = { it.packageName }) { app ->
                         Row(
@@ -275,7 +285,7 @@ fun FolderContentBottomSheet(
 
                             IconButton(
                                 onClick = {
-                                    viewModel.removeAppFromFolder(folder.id, app.packageName)
+                                    viewModel.removeAppFromFolder(currentFolder.id, app.packageName)
                                 }
                             ) {
                                 Icon(
@@ -294,14 +304,17 @@ fun FolderContentBottomSheet(
 
     if (showAddAppsDialog) {
         SelectAppsForFolderDialog(
-            folder = folder,
+            folder = currentFolder,
             allApps = allApps,
+            iconStyle = iconStyle,
+            repository = viewModel.repository,
+            currentPackageNames = currentFolder.packageNames.toSet(),
             onDismiss = { showAddAppsDialog = false },
             onAddApp = { pkg ->
-                viewModel.addAppToFolder(folder.id, pkg)
+                viewModel.addAppToFolder(currentFolder.id, pkg)
             },
             onRemoveApp = { pkg ->
-                viewModel.removeAppFromFolder(folder.id, pkg)
+                viewModel.removeAppFromFolder(currentFolder.id, pkg)
             }
         )
     }
@@ -311,11 +324,16 @@ fun FolderContentBottomSheet(
 fun SelectAppsForFolderDialog(
     folder: AppFolder,
     allApps: List<AppInfo>,
+    iconStyle: String = "none",
+    repository: AppRepository? = null,
+    currentPackageNames: Set<String> = folder.packageNames.toSet(),
     onDismiss: () -> Unit,
     onAddApp: (String) -> Unit,
     onRemoveApp: (String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var selectedPkgs by remember(currentPackageNames) { mutableStateOf(currentPackageNames) }
+
     val filtered = remember(searchQuery, allApps) {
         if (searchQuery.isBlank()) allApps
         else allApps.filter { it.label.contains(searchQuery.trim(), ignoreCase = true) }
@@ -342,33 +360,54 @@ fun SelectAppsForFolderDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .height(320.dp)
                 ) {
                     items(filtered, key = { it.packageName }) { app ->
-                        val isContained = folder.packageNames.contains(app.packageName)
+                        val isContained = selectedPkgs.contains(app.packageName)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable {
-                                    if (isContained) onRemoveApp(app.packageName)
-                                    else onAddApp(app.packageName)
+                                    if (isContained) {
+                                        selectedPkgs = selectedPkgs - app.packageName
+                                        onRemoveApp(app.packageName)
+                                    } else {
+                                        selectedPkgs = selectedPkgs + app.packageName
+                                        onAddApp(app.packageName)
+                                    }
                                 }
-                                .padding(vertical = 6.dp)
+                                .padding(vertical = 6.dp, horizontal = 2.dp)
                         ) {
                             Checkbox(
                                 checked = isContained,
                                 onCheckedChange = { checked ->
-                                    if (checked) onAddApp(app.packageName)
-                                    else onRemoveApp(app.packageName)
+                                    if (checked) {
+                                        selectedPkgs = selectedPkgs + app.packageName
+                                        onAddApp(app.packageName)
+                                    } else {
+                                        selectedPkgs = selectedPkgs - app.packageName
+                                        onRemoveApp(app.packageName)
+                                    }
                                 }
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            if (repository != null && iconStyle != "none") {
+                                AppIconView(
+                                    packageName = app.packageName,
+                                    label = app.label,
+                                    iconStyle = iconStyle,
+                                    repository = repository,
+                                    size = 28.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                            }
                             Text(
                                 text = app.label,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }

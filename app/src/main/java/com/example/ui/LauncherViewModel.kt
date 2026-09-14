@@ -43,10 +43,12 @@ data class LauncherUiState(
         CustomWidgetId.BATTERY.name,
         CustomWidgetId.DAILY_INTENTION.name
     ),
+    val systemAppWidgetIds: List<Int> = emptyList(),
     val dailyIntention: String = "Concéntrate en lo esencial hoy.",
     val themeMode: String = "amoled",
     val clock24h: Boolean = true,
     val autoOpenSingle: Boolean = false,
+    val hideStatusBar: Boolean = false,
     val textSize: String = "medium",
     val gestureActions: Map<GestureType, LauncherAction> = emptyMap(),
     val currentScreen: LauncherScreen = LauncherScreen.HOME,
@@ -68,13 +70,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val baseConfigFlow = combine(
-        preferencesManager.enabledWidgetsFlow,
-        preferencesManager.dailyIntentionFlow,
-        preferencesManager.themeModeFlow,
-        preferencesManager.clock24hFlow,
-        preferencesManager.autoOpenSingleFlow
-    ) { widgets, intention, theme, c24, autoOpen ->
-        BaseConfig(widgets, intention, theme, c24, autoOpen)
+        combine(
+            preferencesManager.enabledWidgetsFlow,
+            preferencesManager.dailyIntentionFlow,
+            preferencesManager.themeModeFlow
+        ) { widgets, intention, theme -> Triple(widgets, intention, theme) },
+        combine(
+            preferencesManager.clock24hFlow,
+            preferencesManager.autoOpenSingleFlow,
+            preferencesManager.hideStatusBarFlow
+        ) { c24, autoOpen, hideStatusBar -> Triple(c24, autoOpen, hideStatusBar) }
+    ) { (widgets, intention, theme), (c24, autoOpen, hideStatusBar) ->
+        BaseConfig(widgets, intention, theme, c24, autoOpen, hideStatusBar)
     }
 
     private val extendedConfigFlow = combine(
@@ -82,9 +89,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         preferencesManager.iconStyleFlow,
         preferencesManager.gesturesFlow,
         preferencesManager.foldersFlow,
-        preferencesManager.recentAppsFlow
-    ) { size, iconStyle, gestures, folders, recentPkgs ->
-        ExtendedConfig(size, iconStyle, gestures, folders, recentPkgs)
+        combine(preferencesManager.recentAppsFlow, preferencesManager.systemAppWidgetIdsFlow) { recentPkgs, widgetIds ->
+            recentPkgs to widgetIds
+        }
+    ) { size, iconStyle, gestures, folders, (recentPkgs, widgetIds) ->
+        ExtendedConfig(size, iconStyle, gestures, folders, recentPkgs, widgetIds)
     }
 
     val uiState: StateFlow<LauncherUiState> = combine(
@@ -145,10 +154,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             searchQuery = query,
             isLoading = _isLoading.value,
             enabledWidgets = baseConfig.widgets,
+            systemAppWidgetIds = extConfig.systemAppWidgetIds,
             dailyIntention = baseConfig.intention,
             themeMode = baseConfig.theme,
             clock24h = baseConfig.c24,
             autoOpenSingle = baseConfig.autoOpen,
+            hideStatusBar = baseConfig.hideStatusBar,
             textSize = extConfig.size,
             gestureActions = extConfig.gestures,
             currentScreen = screen,
@@ -378,6 +389,24 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun showNotice(msg: String) {
         _notificationNotice.value = msg
     }
+
+    fun setHideStatusBar(hide: Boolean) {
+        viewModelScope.launch {
+            preferencesManager.setHideStatusBar(hide)
+        }
+    }
+
+    fun addSystemAppWidget(appWidgetId: Int) {
+        viewModelScope.launch {
+            preferencesManager.addSystemAppWidget(appWidgetId)
+        }
+    }
+
+    fun removeSystemAppWidget(appWidgetId: Int) {
+        viewModelScope.launch {
+            preferencesManager.removeSystemAppWidget(appWidgetId)
+        }
+    }
 }
 
 private data class BaseConfig(
@@ -385,7 +414,8 @@ private data class BaseConfig(
     val intention: String,
     val theme: String,
     val c24: Boolean,
-    val autoOpen: Boolean
+    val autoOpen: Boolean,
+    val hideStatusBar: Boolean = false
 )
 
 private data class ExtendedConfig(
@@ -393,5 +423,6 @@ private data class ExtendedConfig(
     val iconStyle: String,
     val gestures: Map<GestureType, LauncherAction>,
     val folders: List<AppFolder>,
-    val recentPkgs: List<String>
+    val recentPkgs: List<String>,
+    val systemAppWidgetIds: List<Int> = emptyList()
 )
